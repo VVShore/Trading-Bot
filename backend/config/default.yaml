@@ -1,0 +1,128 @@
+# Default configuration for the trading research/forward-test platform.
+# Every value here maps 1:1 to backend/config/schema.py::AppConfig.
+# Values flagged PROVISIONAL in comments are documented in docs/ASSUMPTIONS.md.
+
+config_version: "0.1.0"
+
+strategy:
+  enabled: true
+  name: "NY_AM_HTF_CONTINUATION_V1"
+  version: "0.1.0"
+
+session:
+  timezone: "America/New_York"
+  analysis_start: "09:00"
+  entry_start: "09:02"
+  entry_end: "11:00"
+  session_close: "16:00"
+  close_before_session_close_minutes: 5
+
+session_importance:
+  asia: 7
+  london: 8
+  pre_ny: 7
+  ny_open: 10
+  lunch_pm: 5
+
+htf:
+  timeframe: "1h"
+  lookback_candles: 5
+  max_lookback_candles: 12
+  strong_body_percent: 60          # PROVISIONAL
+  dominant_wick_rejection_percent: 70  # PROVISIONAL
+  wick_exceeds_body_percent: 12.5  # PROVISIONAL ("10-15%")
+  body_engulf_threshold_percent: 85  # PROVISIONAL
+
+liquidity:
+  tolerance:
+    equal_level_tolerance_points: 5   # PROVISIONAL
+  staleness:
+    stale_distance_points: 150        # PROVISIONAL
+  importance:
+    pdh_importance: 6
+    pdl_importance: 6
+    pdh_pdl_weight: 7
+    equal_highs_importance: 8
+    equal_lows_importance: 8
+    internal_liquidity_importance: 6
+    internal_liquidity_weight: 8
+    external_liquidity_importance: 7
+    external_liquidity_weight: 8
+
+fvg:
+  min_size_points: 1.0     # PROVISIONAL
+  max_age_candles: 200     # PROVISIONAL
+
+ote:
+  levels: [0.62, 0.705, 0.79]
+
+manipulation:
+  min_wick_size_points: 8         # PROVISIONAL
+  max_body_percent: 40            # PROVISIONAL
+  require_liquidity_sweep: true
+  require_htf_confluence: false
+  require_rejection: true
+  lookback_candles: 30
+  max_age_candles: 20
+  require_confirmation: false
+
+smt:
+  enabled: true
+  reference_symbol: "ES"
+  lookback_candles: 20
+
+entry:
+  manipulation_ce_enabled: true
+  fvg_confirmation_enabled: false   # secondary model FVG_INVERSION_CONFIRMATION, disabled by default
+
+management:
+  move_to_be: true
+  be_plus_one: false                # explicitly disallowed by spec
+  be_breathing_room_points: 20      # PROVISIONAL
+  fixed_trailing_increment_points: 20  # PROVISIONAL
+  use_fixed_trailing: false
+
+news:
+  enabled: true
+  lockout_minutes_after_release: 15
+  blackout_event_types: ["CPI", "NFP", "FOMC", "FED_CHAIR_SPEECH", "RED_FOLDER"]
+
+risk:
+  risk_mode: "dollar"
+  risk_dollars: 300
+  risk_percent: 0.6
+  account_size: 50000
+  max_daily_loss: 1200
+  max_losses: 2
+  max_trades_per_day: 5
+  max_wins_per_day: 3
+  max_unprofitable_trades_per_day: 3
+  allow_be_trades: 1
+  daily_account_loss_threshold_percent: 20
+  reduce_risk_after_losing_day: true
+  increase_risk_after_win: false
+
+execution:
+  active_symbol: "MNQ"
+  allow_nq_manual_override: true
+  live_trading_enabled: false        # HARD GUARD: must stay false for V1
+  broker_environment: "paper"
+  instruments:
+    MNQ:
+      symbol: "MNQ"
+      point_value: 2.0
+      tick_size: 0.25
+      commission_per_contract: 0.74
+      estimated_slippage_points: 0.25
+    NQ:
+      symbol: "NQ"
+      point_value: 20.0
+      tick_size: 0.25
+      commission_per_contract: 1.29
+      estimated_slippage_points: 0.25
+    ES:
+      symbol: "ES"
+      point_value: 50.0
+      tick_size: 0.25
+      commission_per_contract: 1.29
+      estimated_slippage_points: 0.25
