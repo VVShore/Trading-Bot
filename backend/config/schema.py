@@ -13,7 +13,13 @@ from __future__ import annotations
 
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+
+# --- Owner policy locks (docs/ASSUMPTIONS.md, "Policy locks", decisions 1-9) ---------
+RISK_PER_TRADE_RANGE = (200.0, 400.0)   # decision 1
+DAILY_LOSS_LIMIT_RANGE = (2000.0, 2500.0)  # decision 4
+REQUIRED_TIMEZONE = "America/New_York"  # decision 6
 
 
 class StrategyToggle(BaseModel):
@@ -23,12 +29,27 @@ class StrategyToggle(BaseModel):
 
 
 class SessionConfig(BaseModel):
-    timezone: str = "America/New_York"
+    # Decision 6: every aggregator/session component is forced to New York time.
+    timezone: str = REQUIRED_TIMEZONE
     analysis_start: str = "09:00"
     entry_start: str = "09:02"
     entry_end: str = "11:00"  # configurable; may later extend to 11:30
     session_close: str = "16:00"
     close_before_session_close_minutes: int = 5
+    # CME equity-futures daily maintenance halt (ET). No candles exist inside it and no
+    # aggregated bar may span it.
+    maintenance_halt_start: str = "17:00"
+    maintenance_halt_end: str = "18:00"
+    # 4H bars are anchored here (ET wall clock): 18:00, 22:00, 02:00, 06:00, 10:00, 14:00.
+    # NOT specified by the SDS -- provisional, see docs/ASSUMPTIONS.md.
+    four_hour_anchor: str = "18:00"
+
+    @field_validator("timezone")
+    @classmethod
+    def _timezone_is_new_york(cls, v: str) -> str:
+        if v != REQUIRED_TIMEZONE:
+            raise ValueError(f"session.timezone is locked to {REQUIRED_TIMEZONE} for the MVP (got {v!r}).")
+        return v
 
 
 class SessionImportanceConfig(BaseModel):
@@ -135,9 +156,10 @@ class RiskConfig(BaseModel):
     risk_percent: float = 0.6
     account_size: float = 50000.0
 
-    max_daily_loss: float = 1200.0
+    max_daily_loss: float = 2000.0  # decision 4: fixed, within DAILY_LOSS_LIMIT_RANGE
     max_losses: int = 2
-    max_trades_per_day: int = 5
+    max_trades_per_day: int = 6  # decision 3 ("max_daily_trades"); one setting, not two
+    max_concurrent_positions: int = Field(default=1, ge=1)  # decision 3
     max_wins_per_day: int = 3
     max_unprofitable_trades_per_day: int = 3
     allow_be_trades: int = 1
@@ -146,6 +168,19 @@ class RiskConfig(BaseModel):
 
     reduce_risk_after_losing_day: bool = True
     increase_risk_after_win: bool = False
+
+    # Decision 7: manual halt (e.g. around high-impact news). Enforced by the RiskEngine.
+    pause_trading: bool = False
+    # Decision 3: replay/backtest may explicitly lift the max-trades-per-day cap. Only
+    # honoured when execution.broker_environment == "paper" (validated on AppConfig).
+    backtest_override_trade_frequency: bool = False
+
+    @property
+    def resolved_risk_dollars(self) -> float:
+        """Max dollar risk per trade (dollar mode, or percent of account_size)."""
+        if self.risk_mode == "percent":
+            return self.account_size * (self.risk_percent / 100.0)
+        return self.risk_dollars
 
 
 class InstrumentConfig(BaseModel):
@@ -158,7 +193,10 @@ class InstrumentConfig(BaseModel):
 
 class ExecutionConfig(BaseModel):
     active_symbol: str = "MNQ"
-    allow_nq_manual_override: bool = True
+    allow_nq_manual_override: bool = True  # IGNORED in the MVP (decision 5): only active_symbol trades
+    # Decision 6: contract rollover is manual. Set the specific contract here (e.g. "MNQZ6");
+    # there is no automated roll logic. None = unspecified.
+    active_contract: Optional[str] = None
     live_trading_enabled: bool = False  # HARD GUARD -- see backend/execution/base.py
     broker_environment: str = "paper"  # "paper" | "tradovate_demo" | "tradovate_live"
     instruments: dict[str, InstrumentConfig] = Field(
@@ -187,6 +225,23 @@ class AppConfig(BaseModel):
     execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
 
     config_version: str = "0.1.0"
+
+    @model_validator(mode="after")
+    def _enforce_policy_locks(self) -> "AppConfig":
+        # Policy locks are enforced on the assembled config (not on the RiskConfig building
+        # block) so unit tests can still construct small RiskConfig objects directly.
+        lo, hi = RISK_PER_TRADE_RANGE
+        resolved = self.risk.resolved_risk_dollars
+        if not lo <= resolved <= hi:
+            raise ValueError(f"Risk per trade must be within ${lo:.0f}-${hi:.0f} (resolved ${resolved:.2f}).")
+        dlo, dhi = DAILY_LOSS_LIMIT_RANGE
+        if not dlo <= self.risk.max_daily_loss <= dhi:
+            raise ValueError(
+                f"risk.max_daily_loss must be within ${dlo:.0f}-${dhi:.0f} (got ${self.risk.max_daily_loss:.2f})."
+            )
+        if self.risk.backtest_override_trade_frequency and self.execution.broker_environment != "paper":
+            raise ValueError("risk.backtest_override_trade_frequency is only allowed when broker_environment == 'paper'.")
+        return self
 
     def parameter_snapshot(self) -> dict:
         """Full snapshot for attaching to trades/backtests. See docs/ARCHITECTURE.md."""

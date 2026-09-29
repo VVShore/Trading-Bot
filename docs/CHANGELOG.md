@@ -3,7 +3,27 @@
 All notable changes to this project are recorded here. Provisional-rule
 replacements (see `docs/ASSUMPTIONS.md`) must always get an entry.
 
-## [Unreleased] - Phase 1: execution foundation
+## [Unreleased] - Phase 2: market-data foundation + policy locks
+
+### Added
+- Data pipeline: `MarketDataProvider` (+ `CsvBarProvider`, `InMemoryProvider`), `BarNormalizer` (timestamps -> America/New_York, explicit open/close stamping, closed flag), `TickCandleBuilder`, `MarketDataPipeline`.
+- `TimeframeAggregator` (`backend/market/candles/aggregator.py`): 1M -> 5M/15M/1H/4H from closed candles only, developing bar kept separate, 17:00-18:00 ET halt is a hard boundary, DST-safe.
+- `MarketContextBuilder` (`backend/context/builder.py`): closed bars only, `as_of` = latest known close.
+- `backend/market/sessions/clock.py`, `backend/management/bar_exit.py` (same-bar SL/TP policy).
+- `RiskEngine.reconcile_fill` (re-size down or reject on gap), `settle_intent`; `DailyRiskState.halt_session` / `remaining_loss_budget`.
+- `InstrumentSpec.round_entry/round_stop/round_target`.
+- Config: `max_concurrent_positions`, `pause_trading`, `backtest_override_trade_frequency`, `execution.active_contract`, session halt/4H-anchor settings.
+- `docs/ASSUMPTIONS.md`: "Policy locks" (owner decisions 1-9) and provisional rules P1-P3.
+
+### Changed
+- Policy locks: sizing is now `floor(risk / (pts x $2))` (commission/slippage no longer in the ceiling); `max_daily_loss` 1200 -> 2000; `max_trades_per_day` 5 -> 6; off-tick prices are rounded, not rejected; timezone locked to America/New_York.
+- `RiskEngine(config, daily_state, open_position_count)` (new required argument); `evaluate(setup, market_price=None)`.
+- `Candle` now rejects negative volume, non-finite values and naive timestamps.
+- `MarketContext` list/dict fields default to empty instead of `None`.
+- `NyAmHtfContinuationV1`: `within_execution_window` is a real PASS/FAIL condition.
+- Two tests asserting the old defaults ($1,200 / 5 trades) were updated to the locked values; one Phase 1 test threshold changed accordingly.
+
+## [Phase 1] - Execution foundation
 
 ### Added
 - `InstrumentSpec` + `backend/config/instruments.py` resolver (MNQ $2/pt, 0.25 tick; ES analysis-only).

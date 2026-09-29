@@ -7,6 +7,7 @@ built by aggregating lower timeframe candles (see backend/market/candles).
 
 from __future__ import annotations
 
+import math
 from datetime import datetime
 
 from pydantic import BaseModel, Field, model_validator
@@ -31,6 +32,14 @@ class Candle(BaseModel):
 
     @model_validator(mode="after")
     def _validate_ohlc(self) -> "Candle":
+        if not all(math.isfinite(v) for v in (self.open, self.high, self.low, self.close, self.volume)):
+            raise ValueError("Candle OHLCV values must be finite numbers")
+        if self.volume < 0:
+            raise ValueError("Candle volume must be >= 0")
+        if self.open_time.tzinfo is None or self.close_time.tzinfo is None:
+            raise ValueError("Candle open_time/close_time must be timezone-aware")
+        if self.high < self.low:
+            raise ValueError("Candle high must be >= low")
         if self.high < max(self.open, self.close):
             raise ValueError("Candle high must be >= max(open, close)")
         if self.low > min(self.open, self.close):

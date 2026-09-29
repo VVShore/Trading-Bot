@@ -16,7 +16,8 @@ from tests.helpers import make_daily_state, make_setup
 def _stack():
     config = load_config()
     state = make_daily_state(config)
-    return config, state, RiskEngine(config, state), PaperBroker.from_config(config)
+    broker = PaperBroker.from_config(config)
+    return config, state, RiskEngine(config, state, broker.open_position_count), broker
 
 
 def test_full_vertical_slice_opens_then_closes_position():
@@ -26,11 +27,15 @@ def test_full_vertical_slice_opens_then_closes_position():
     assert decision.approved
     intent = decision.intent
 
-    entry = broker.submit_intent(intent, reference_price=20000.00)
+    fill_check = engine.reconcile_fill(intent, 20000.00)  # next-bar-open re-check (policy lock 1)
+    assert fill_check.approved and fill_check.intent.quantity == intent.quantity
+    entry = broker.submit_intent(fill_check.intent, reference_price=20000.00)
+    engine.settle_intent(intent.intent_id)
     assert entry.accepted and entry.filled
     assert broker.get_order_record(intent.entry_order_id).status == OrderStatus.FILLED
+    assert engine.evaluate(make_setup(setup_id="second")).approved is False  # 1 position open: cap reached
     pos = broker.get_position("MNQ")
-    assert pos["side"] == TradeSide.LONG and pos["quantity"] == intent.quantity == 14
+    assert pos["side"] == TradeSide.LONG and pos["quantity"] == intent.quantity == 15
 
     # Opposite-side order closes it (manual close; exit management is a later phase).
     close = Order(order_id="close-1", symbol="MNQ", side=TradeSide.SHORT, order_type=OrderType.MARKET,
@@ -45,7 +50,7 @@ def test_full_vertical_slice_opens_then_closes_position():
 
 def test_daily_loss_lockout_stops_the_pipeline_before_the_broker():
     config, state, engine, broker = _stack()
-    state.record_trade_result(-1300.0)
+    state.record_trade_result(-2100.0)  # exceeds the $2,000 daily limit
     decision = engine.evaluate(make_setup())
     assert not decision.approved and decision.intent is None
     assert broker.get_position("MNQ") is None  # nothing could be submitted
@@ -86,3 +91,12 @@ def test_live_guard_stays_hard_off_through_the_pipeline():
     assert LIVE_TRADING_ENABLED is False
     assert config.execution.live_trading_enabled is False
     assert broker.is_live is False
+
+
+def test_gap_resizes_before_the_broker_sees_the_order():
+    _, _, engine, broker = _stack()
+    intent = engine.evaluate(make_setup()).intent  # qty 15 planned at 20000
+    resized = engine.reconcile_fill(intent, 20005.0).intent  # stop distance 15 pts -> qty 10
+    assert resized.quantity == 10
+    broker.submit_intent(resized, reference_price=20005.0)
+    assert broker.get_position("MNQ")["quantity"] == 10

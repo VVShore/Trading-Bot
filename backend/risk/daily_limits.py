@@ -54,7 +54,7 @@ class DailyRiskState:
         c = self.config
         if self.losses >= c.max_losses:
             self._lock(f"Max losses reached ({self.losses}/{c.max_losses}).")
-        elif self.trades_taken >= c.max_trades_per_day:
+        elif self.trades_taken >= c.max_trades_per_day and not c.backtest_override_trade_frequency:
             self._lock(f"Max trades/day reached ({self.trades_taken}/{c.max_trades_per_day}).")
         elif self.wins >= c.max_wins_per_day:
             self._lock(f"Max wins/day reached ({self.wins}/{c.max_wins_per_day}).")
@@ -67,6 +67,21 @@ class DailyRiskState:
             self._lock(f"Breakeven trade allowance exceeded ({self.breakevens}/{c.allow_be_trades}).")
         elif self.realized_pnl_dollars <= -abs(c.max_daily_loss):
             self._lock(f"Max daily loss reached (${self.realized_pnl_dollars:.2f}).")
+        elif self.remaining_loss_budget() < c.resolved_risk_dollars:
+            # Decision 4: if what is left of the daily loss budget cannot cover one full
+            # trade allocation, the session is over. No partial-size scaling in the MVP.
+            self._lock(
+                f"Remaining daily loss budget (${self.remaining_loss_budget():.2f}) cannot cover a full "
+                f"trade allocation (${c.resolved_risk_dollars:.2f})."
+            )
+
+    def remaining_loss_budget(self) -> float:
+        """Dollars that can still be lost today before max_daily_loss is reached."""
+        return abs(self.config.max_daily_loss) + min(self.realized_pnl_dollars, 0.0)
+
+    def halt_session(self, reason: str) -> None:
+        """Latch a lockout for the rest of the session (e.g. after a safety event)."""
+        self._lock(reason)
 
     def _lock(self, reason: str) -> None:
         self.locked_out = True

@@ -16,6 +16,9 @@ session:
   entry_end: "11:00"
   session_close: "16:00"
   close_before_session_close_minutes: 5
+  maintenance_halt_start: "17:00"
+  maintenance_halt_end: "18:00"
+  four_hour_anchor: "18:00"   # PROVISIONAL (not in SDS)
 
 session_importance:
   asia: 7
@@ -92,19 +95,23 @@ risk:
   risk_dollars: 300
   risk_percent: 0.6
   account_size: 50000
-  max_daily_loss: 1200
+  max_daily_loss: 2000        # decision 4 (locked range 2000-2500)
   max_losses: 2
-  max_trades_per_day: 5
+  max_trades_per_day: 6       # decision 3 ("max_daily_trades")
+  max_concurrent_positions: 1 # decision 3
   max_wins_per_day: 3
   max_unprofitable_trades_per_day: 3
   allow_be_trades: 1
   daily_account_loss_threshold_percent: 20
   reduce_risk_after_losing_day: true
   increase_risk_after_win: false
+  pause_trading: false                       # decision 7: manual halt flag
+  backtest_override_trade_frequency: false   # decision 3: paper/backtest only
 
 execution:
   active_symbol: "MNQ"
-  allow_nq_manual_override: true
+  allow_nq_manual_override: true     # IGNORED in the MVP (decision 5)
+  active_contract: null              # decision 6: set manually, e.g. "MNQZ6"; no auto-roll
   live_trading_enabled: false        # HARD GUARD: must stay false for V1
   broker_environment: "paper"
   instruments:

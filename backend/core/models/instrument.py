@@ -8,8 +8,11 @@ AppConfig (see backend/config/instruments.py) by the RiskEngine and PaperBroker.
 from __future__ import annotations
 
 import math
+from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from backend.core.enums import TradeSide
 
 
 class InstrumentSpec(BaseModel):
@@ -38,3 +41,30 @@ class InstrumentSpec(BaseModel):
         """Largest valid quantity <= `quantity` (0 if below min_quantity)."""
         q = (quantity // self.quantity_increment) * self.quantity_increment
         return q if q >= self.min_quantity else 0
+
+    # ---- Deterministic tick rounding (owner decision 2) ------------------------------
+    # Exact decimal arithmetic so midpoints such as 18250.125 never depend on float noise.
+    # An already-on-tick price is returned unchanged by every method.
+
+    def _snap(self, price: float, rounding: str) -> float:
+        tick = Decimal(str(self.tick_size))
+        ticks = (Decimal(str(price)) / tick).to_integral_value(rounding=rounding)
+        return float(ticks * tick)
+
+    def round_up(self, price: float) -> float:
+        return self._snap(price, ROUND_CEILING)
+
+    def round_down(self, price: float) -> float:
+        return self._snap(price, ROUND_FLOOR)
+
+    def round_entry(self, price: float, market_price: float) -> float:
+        """Entries round TOWARD the current market price (to a neighbouring tick)."""
+        return self.round_up(price) if market_price > price else self.round_down(price)
+
+    def round_stop(self, price: float, side: TradeSide) -> float:
+        """Stops round AWAY from entry: long stops sit below entry (down), short stops above (up)."""
+        return self.round_down(price) if side == TradeSide.LONG else self.round_up(price)
+
+    def round_target(self, price: float, side: TradeSide) -> float:
+        """Targets round TOWARD entry (guarantees limit fills): long targets sit above entry (down)."""
+        return self.round_down(price) if side == TradeSide.LONG else self.round_up(price)

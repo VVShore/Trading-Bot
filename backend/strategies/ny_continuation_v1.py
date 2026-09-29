@@ -19,6 +19,7 @@ from uuid import uuid4
 
 from backend.core.enums import SetupConditionStatus, StrategyName, TradeSide
 from backend.core.models.setup import SetupCondition, TradeSetup
+from backend.market.sessions.clock import is_within_entry_window
 from backend.strategies.base import MarketContext, Strategy
 
 REQUIRED_CONDITION_NAMES = [
@@ -56,6 +57,19 @@ class NyAmHtfContinuationV1(Strategy):
             for n in OPTIONAL_CONFLUENCE_NAMES
         ]
 
+        in_window = is_within_entry_window(context.as_of, self.config.session)
+        for cond in required:
+            if cond.name == "within_execution_window":
+                cond.status = SetupConditionStatus.PASS if in_window else SetupConditionStatus.FAIL
+                cond.detail = (
+                    f"{self.config.session.entry_start}-{self.config.session.entry_end} "
+                    f"{self.config.session.timezone}"
+                )
+
+        reason = "Detector modules not yet implemented (Steps 3-6 of development process)."
+        if not in_window:
+            reason = "Outside the configured entry window."
+
         setup = TradeSetup(
             setup_id=str(uuid4()),
             strategy=StrategyName.NY_AM_HTF_CONTINUATION_V1,
@@ -66,7 +80,7 @@ class NyAmHtfContinuationV1(Strategy):
             required_conditions=required,
             optional_confluences=optional,
             decision="NO_TRADE",
-            reason="Detector modules not yet implemented (Steps 3-6 of development process).",
+            reason=reason,
             parameter_snapshot=self.config.parameter_snapshot(),
         )
         return setup

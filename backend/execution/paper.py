@@ -222,6 +222,9 @@ class PaperBroker(ExecutionBroker):
             return None
         return {"symbol": pos.symbol, "side": pos.side, "quantity": pos.quantity, "entry_price": pos.entry_price}
 
+    def open_position_count(self) -> int:
+        return len(self._positions)
+
     def get_order_record(self, order_id: str) -> Optional[OrderRecord]:
         return self._orders.get(order_id)
 

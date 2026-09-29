@@ -25,12 +25,37 @@ provisional rule is replaced by a confirmed definition.**
 | 12 | CE calculation | FVG CE = midpoint of FVG range unless overridden; manipulation-candle CE = midpoint of candle range. This is the trader's stated rule, not an assumption, but is recorded here because other CE variants (e.g. weighted CE) may be added later. | `backend/core/models/concept.py::ConceptObject.compute_ce`, `backend/core/models/candle.py::Candle.midpoint` | Trader-specified default |
 | 13 | Fixed trailing increment | 20 NQ points, only used when `management.use_fixed_trailing=true` (opt-in, off by default). | `management.fixed_trailing_increment_points` | PROVISIONAL |
 | 14 | BE breathing room | If price is at/above BE and a strong 1M rejection occurs, the trade is allowed to "breathe" if at least 20 points of room exists before exiting. | `management.be_breathing_room_points` | PROVISIONAL |
-| 15 | Risk per trade | Spec states "$200–$400 depending on setup quality/conviction." V1 defaults to a flat `$300` (midpoint) since conviction-based sizing is not yet implemented; the risk engine and UI already support switching to percent-of-account risk. | `risk.risk_dollars`, `risk.risk_mode` | PROVISIONAL default, conviction-based scaling not yet implemented |
+| 15 | Risk per trade | Spec states "$200–$400 depending on setup quality/conviction." V1 defaults to a flat `$300` (midpoint) since conviction-based sizing is not yet implemented; the risk engine and UI already support switching to percent-of-account risk. | `risk.risk_dollars`, `risk.risk_mode` | SUPERSEDED by policy lock 1 (below); conviction-based scaling still not implemented |
 | 16 | Daily 20% account-loss threshold | Spec explicitly says this is a configurable *safety* limit, not to be assumed as a broker/prop-firm rule. Implemented purely as an informational config field for now; not yet wired into `DailyRiskState` enforcement. | `risk.daily_account_loss_threshold_percent` | PROVISIONAL, not yet enforced |
 | 17 | Instrument point values / tick sizes | MNQ ($2/pt, 0.25 tick), NQ ($20/pt, 0.25 tick), ES ($50/pt, 0.25 tick) are standard CME contract specs, not provisional — included here for completeness since they feed directly into position sizing. | `execution.instruments` | Factual, not provisional |
 | 18 | Commission / slippage estimates | `commission_per_contract` and `estimated_slippage_points` per instrument are placeholder starting points (not sourced from a specific broker fee schedule) and should be replaced with actual Tradovate/broker figures before backtest results are trusted quantitatively. | `execution.instruments.*.commission_per_contract`, `execution.instruments.*.estimated_slippage_points` | PROVISIONAL |
 | 19 | SMT lookback window | 20 candles used as the comparison window for NQ/MNQ vs. ES divergence. Detector itself not yet implemented (Step 5+). | `smt.lookback_candles` | PROVISIONAL, unimplemented |
 | 20 | HTF bias lookback | Default 5 completed 1H candles, engine supports 1–12 (spec-specified range, not an assumption). | `htf.lookback_candles`, `htf.max_lookback_candles` | Trader-specified default |
+
+## Policy locks (owner decisions 1-9, recorded 2026-09-28)
+
+These are the owner's confirmed rules for the MVP, not provisional definitions. "Enforced" means
+code + tests exist; "Partial" says exactly what is missing.
+
+| # | Rule | Where enforced | Status |
+|---|---|---|---|
+| L1 | Base sizing on the $50,000 account with $200-$400 max risk/trade. `N = floor(dollar_risk / (SL pts x $2))` for MNQ. If the next-bar open gaps so the stop distance would break the ceiling, re-size DOWN at fill, or reject. | `RiskConfig`/`AppConfig` range check (risk must resolve to $200-$400); `RiskEngine.evaluate` (formula); `RiskEngine.reconcile_fill` (gap rule: never sizes up, rejects if no valid size or fill is through the stop) | Enforced. Sizing excludes commission and slippage (the lock is a pure points x $ formula); the paper broker still charges them on top. |
+| L2 | Off-tick prices round deterministically to the 0.25 tick: entries TOWARD market price, stops AWAY from entry, targets TOWARD entry. | `InstrumentSpec.round_entry/round_stop/round_target` (exact decimal math); applied by `RiskEngine` BEFORE sizing, so the ceiling holds on the rounded stop | Enforced. Interpretation: "toward market" = to the neighbouring tick on the market's side (not "nearest"); an off-tick entry needs `market_price` passed to `evaluate()` or it is rejected. |
+| L3 | Max 1 concurrent position; max 6 trades/day; backtests may lift the trade cap via an explicit flag. | `risk.max_concurrent_positions` (open positions + approved-but-unsettled intents); `risk.max_trades_per_day` (= "max_daily_trades") via `DailyRiskState`; `risk.backtest_override_trade_frequency` (paper environment only) | Enforced. The override lifts only the trades/day cap. |
+| L4 | Fixed daily loss limit of $2,000-$2,500. If the remaining budget cannot cover one full trade allocation, lock out for the rest of the session. No partial-size scaling. | `risk.max_daily_loss` (default $2,000, range-checked); `DailyRiskState` (limit reached, or remaining budget < resolved risk per trade) | Enforced. |
+| L5 | `active_symbol` is MNQ only; ignore `allow_nq_manual_override`. | `RiskEngine` (only `execution.active_symbol`; ES never) | Enforced; the override field is read by nothing. |
+| L6 | All aggregators/session logic in America/New_York; contract rollover is manual config, never automated. | `session.timezone` locked by validator; `market/sessions/clock.py`; aggregator and normalizer; `execution.active_contract` (manual field) | Enforced. `active_contract` is a plain setting, not yet consumed by any component. |
+| L7 | Session windows are strategy CONDITIONS (outside window -> NO_TRADE); no news APIs; a `pause_trading` flag for manual halts. | `NyAmHtfContinuationV1` (`within_execution_window` condition); `risk.pause_trading` enforced by `RiskEngine` | Enforced. |
+| L8 | Paper/backtest: if one 1M candle touches both SL and TP, assume stop first, log a safety event, halt the session. Live relies on OCO brackets. | `management/bar_exit.py` (`evaluate_bar_exit`, `SafetyEvent`, `enforce_safety_event` -> `DailyRiskState.halt_session`) | PARTIAL: decision logic, event and session halt are implemented and tested; they are not wired into PaperBroker bracket exits yet (Phase 5), and the event is not yet written to the decision log. |
+| L9 | RiskEngine and OrderIntent were built fresh in Phase 1; continue on this baseline. | n/a | Confirmed. |
+
+### New provisional rules introduced by Phase 2
+
+| # | Concept | Provisional rule | Config path | Status |
+|---|---|---|---|---|
+| P1 | 4H bar alignment | The SDS lists no 4H timeframe. 4H bars are anchored at 18:00 ET (18, 22, 02, 06, 10, 14) and the 14:00 bar is cut short at the 17:00 halt. | `session.four_hour_anchor` | PROVISIONAL |
+| P2 | Bar close on gaps | A higher-timeframe bar closes when its last minute arrives, or when a later bucket's candle arrives (missing minutes are never invented). | n/a | PROVISIONAL |
+| P3 | Tick-built candles | A 1M candle from ticks closes only when a tick from a later minute arrives (no clock-driven close). | n/a | PROVISIONAL |
 
 ## How to replace a provisional rule
 

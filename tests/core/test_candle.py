@@ -56,3 +56,26 @@ def test_body_and_range_and_wicks():
 def test_body_percent_zero_range_candle():
     c = _candle(open=100.0, high=100.0, low=100.0, close=100.0)
     assert c.body_percent == 0.0
+
+
+# --- canonical candle discipline (Phase 2) ---------------------------------------------
+import math  # noqa: E402
+
+import pytest  # noqa: E402
+
+
+def test_negative_volume_rejected():
+    with pytest.raises(ValueError):
+        _candle(volume=-1.0)
+
+
+def test_non_finite_values_rejected():
+    with pytest.raises(ValueError):
+        _candle(high=math.nan)
+    with pytest.raises(ValueError):
+        _candle(volume=math.inf)
+
+
+def test_naive_timestamps_rejected():
+    with pytest.raises(ValueError):
+        _candle(open_time=datetime(2026, 1, 5, 9, 0), close_time=datetime(2026, 1, 5, 9, 1))

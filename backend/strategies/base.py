@@ -14,7 +14,7 @@ backend/concepts/ for detector modules once implemented (Step 5+).
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Optional
 
@@ -38,9 +38,11 @@ class MarketContext:
     # Detector outputs are intentionally loosely typed here (dict of concept
     # collections) so the base interface doesn't need to change every time a
     # new detector is added. Concrete strategies narrow this as needed.
-    liquidity: list[Any] = None  # list[LiquidityObject]
-    concepts: list[Any] = None  # list[ConceptObject]
-    candles: dict[str, list[Any]] = None  # keyed by timeframe -> list[Candle]
+    liquidity: list[Any] = field(default_factory=list)  # list[LiquidityObject]
+    concepts: list[Any] = field(default_factory=list)  # list[ConceptObject]
+    # keyed by timeframe value ("1m", "5m", "15m", "1h", "4h") -> CLOSED candles only, oldest first.
+    # Developing (unclosed) bars are never placed here.
+    candles: dict[str, list[Any]] = field(default_factory=dict)
 
 
 class Strategy(ABC):
