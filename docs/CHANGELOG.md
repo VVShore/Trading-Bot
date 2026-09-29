@@ -3,6 +3,21 @@
 All notable changes to this project are recorded here. Provisional-rule
 replacements (see `docs/ASSUMPTIONS.md`) must always get an entry.
 
+## [Unreleased] - Phase 1: execution foundation
+
+### Added
+- `InstrumentSpec` + `backend/config/instruments.py` resolver (MNQ $2/pt, 0.25 tick; ES analysis-only).
+- `TradeSetup.proposed_entry` and `TradeSetup.targets`.
+- `RiskEngine` (`backend/risk/engine.py`): TradeSetup -> rejection | `OrderIntent`; reuses `DailyRiskState`, `resolve_risk_dollars`, `calculate_position_size`.
+- `OrderIntent` (issuer-token protected) and `OrderStatus` enum.
+- `PaperBroker.submit_intent`, `PaperBroker.from_config`, order lifecycle records.
+- 44 tests, including static bypass guards and the TradeSetup -> Position vertical slice.
+
+### Changed
+- `PaperBroker`: opposite-side orders now reduce/close/flip positions with realized P&L; same-side adds use volume-weighted entry; non-MARKET orders and duplicate order IDs are rejected.
+- `OrderResult.realized_pnl` added (default 0.0).
+- `requirements.txt`: added `tzdata` (needed by `zoneinfo` on Windows).
+
 ## [0.1.0] - Initial foundation (Step 1)
 
 ### Added

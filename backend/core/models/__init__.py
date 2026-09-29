@@ -7,6 +7,8 @@ from backend.core.models.setup import TradeSetup, SetupCondition
 from backend.core.models.target import Target
 from backend.core.models.trade import TradeRecord, TrailingEvent, ExitFill
 from backend.core.models.order import Order, OrderResult
+from backend.core.models.instrument import InstrumentSpec
+from backend.core.models.order_intent import OrderIntent
 
 __all__ = [
     "Candle",
@@ -22,4 +24,6 @@ __all__ = [
     "ExitFill",
     "Order",
     "OrderResult",
+    "InstrumentSpec",
+    "OrderIntent",
 ]

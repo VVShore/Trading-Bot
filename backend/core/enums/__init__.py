@@ -15,6 +15,7 @@ from backend.core.enums.enums import (
     SetupConditionStatus,
     InvalidationReason,
     OrderType,
+    OrderStatus,
     BrokerEnvironment,
     ExecutionSymbol,
 )
@@ -36,6 +37,7 @@ __all__ = [
     "SetupConditionStatus",
     "InvalidationReason",
     "OrderType",
+    "OrderStatus",
     "BrokerEnvironment",
     "ExecutionSymbol",
 ]

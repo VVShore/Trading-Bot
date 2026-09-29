@@ -11,6 +11,7 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
+from backend.core.models.target import Target
 from backend.core.enums import (
     BiasDirection,
     InvalidationReason,
@@ -45,7 +46,12 @@ class TradeSetup(BaseModel):
     optional_confluences: list[SetupCondition] = Field(default_factory=list)
 
     manipulation_ce: Optional[float] = None
+    # Planned entry / stop / targets as proposed by the strategy. All optional:
+    # a NO_TRADE setup has none. The RiskEngine (not the strategy) validates them
+    # and rejects a TRADE setup that lacks side, entry or stop.
+    proposed_entry: Optional[float] = None
     proposed_stop: Optional[float] = None
+    targets: list[Target] = Field(default_factory=list)
 
     invalidation_reasons: list[InvalidationReason] = Field(default_factory=list)
 

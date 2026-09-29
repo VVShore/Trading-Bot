@@ -33,5 +33,6 @@ class OrderResult(BaseModel):
     fill_quantity: int = 0
     commission: float = 0.0
     slippage: float = 0.0
+    realized_pnl: float = 0.0  # gross P&L (before commission) realized by this fill on a reduced/closed position
     rejection_reason: Optional[str] = None
     timestamp: Optional[datetime] = None

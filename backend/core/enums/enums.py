@@ -155,6 +155,14 @@ class OrderType(str, Enum):
     STOP_LIMIT = "stop_limit"
 
 
+class OrderStatus(str, Enum):
+    """Lifecycle of an order inside a broker. Terminal: FILLED, REJECTED, CANCELLED."""
+    SUBMITTED = "submitted"
+    FILLED = "filled"
+    REJECTED = "rejected"
+    CANCELLED = "cancelled"
+
+
 class BrokerEnvironment(str, Enum):
     PAPER = "paper"
     TRADOVATE_DEMO = "tradovate_demo"
