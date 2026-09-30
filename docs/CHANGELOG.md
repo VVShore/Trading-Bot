@@ -3,7 +3,21 @@
 All notable changes to this project are recorded here. Provisional-rule
 replacements (see `docs/ASSUMPTIONS.md`) must always get an entry.
 
-## [Unreleased] - Phase 3: detector scaffolding + first end-to-end run
+## [Unreleased] - Phases 4-5: production orchestrator + bracket exits
+
+### Added
+- `backend/pipeline/orchestrator.py`: `PipelineOrchestrator` (`step()`, `run()`, `on_tick()`, `finish()`) and `build_paper_orchestrator()`. Per candle: fill last bar's intent at this bar's open (`reconcile_fill` -> `submit_intent`, `settle_intent` in a `finally`), evaluate brackets, then strategy -> risk. Stale (non-contiguous) intents are cancelled. Every step is written to the DecisionLogger.
+- `PaperBroker` brackets: stop-market + limit-target OCO registered on every intent fill; `on_candle()` evaluates them via `bar_exit`; limit target fills at the exact price with zero slippage, stop fills carry slippage (and fill from the open on a gap); same-bar touch -> stop + safety event.
+- `TradeRecord` lifecycle in the broker (OPEN -> PARTIALLY_CLOSED -> CLOSED, net P&L, R multiple, ExitFill list); closed trades written to `TradeStore`.
+- `ExitEvent`, `ExecutionBroker.submit_intent/on_candle` hooks, `MarketDataPipeline.process/ingest_candle/provider`, `evaluate_bar_exit(target=None)` for stop-only brackets.
+- 35 new tests (broker brackets, orchestrator, settlement/deadlock, mutation-checked).
+
+### Changed
+- `PaperBroker.submit_intent(intent, reference_price, at)`; refuses entries while a position is open; refuses same-side adds to a managed trade.
+- `.gitignore`: `data/` -> `/data/` (the old pattern silently hid `backend/data/` and `tests/data/` from git).
+- Owner resolutions R5-R8 and provisional rules P3-P8 in docs/ASSUMPTIONS.md.
+
+## [Phase 3] - Detector scaffolding + first end-to-end run
 
 ### Added
 - `backend/detectors/`: abstract `Detector` (`DetectorInput` refuses unclosed/future candles; missing data or errors -> NOT_AVAILABLE), `DetectorStatus`, `DetectorResult`, `PlaceholderDetector` (UNKNOWN), `default_detectors()` (names only, no ICT logic). Wired into `MarketContextBuilder(detectors=...)` -> `MarketContext.detections`.

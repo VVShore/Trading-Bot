@@ -46,24 +46,35 @@ code + tests exist; "Partial" says exactly what is missing.
 | L5 | `active_symbol` is MNQ only; ignore `allow_nq_manual_override`. | `RiskEngine` (only `execution.active_symbol`; ES never) | Enforced; the override field is read by nothing. |
 | L6 | All aggregators/session logic in America/New_York; contract rollover is manual config, never automated. | `session.timezone` locked by validator; `market/sessions/clock.py`; aggregator and normalizer; `execution.active_contract` (manual field) | Enforced. `active_contract` is a plain setting, not yet consumed by any component. |
 | L7 | Session windows are strategy CONDITIONS (outside window -> NO_TRADE); no news APIs; a `pause_trading` flag for manual halts. | `NyAmHtfContinuationV1` (`within_execution_window` condition); `risk.pause_trading` enforced by `RiskEngine` | Enforced. |
-| L8 | Paper/backtest: if one 1M candle touches both SL and TP, assume stop first, log a safety event, halt the session. Live relies on OCO brackets. | `management/bar_exit.py` (`evaluate_bar_exit`, `SafetyEvent`, `enforce_safety_event` -> `DailyRiskState.halt_session`) | PARTIAL: decision logic, event and session halt are implemented and tested; they are not wired into PaperBroker bracket exits yet (Phase 5), and the event is not yet written to the decision log. |
+| L8 | Paper/backtest: if one 1M candle touches both SL and TP, assume stop first, log a safety event, halt the session. Live relies on OCO brackets. | `management/bar_exit.py` (`evaluate_bar_exit`, `SafetyEvent`, `enforce_safety_event` -> `DailyRiskState.halt_session`) | Enforced. `PaperBroker.on_candle` applies it to every bracket; the orchestrator logs the `safety_event` and halts the session before any new signal is evaluated. |
 | L9 | RiskEngine and OrderIntent were built fresh in Phase 1; continue on this baseline. | n/a | Confirmed. |
 
 ### Owner resolutions (2026-09-29)
 
 | # | Resolution | Effect |
 |---|---|---|
-| R1 | Daily counter cleanup | Removed `max_losses`, `max_wins_per_day`, `max_unprofitable_trades_per_day` from config and code. Also removed `allow_be_trades` and the breakeven-allowance lockout (same family of legacy counters, so that limits rely strictly on the policy locks; flagged for the owner to confirm). Wins/losses/breakevens remain as statistics only. Trade limits are now: 6 trades/day, $2,000 daily loss, $200-$400 risk per trade (flat $300 default). |
+| R1 | Daily counter cleanup | Removed `max_losses`, `max_wins_per_day`, `max_unprofitable_trades_per_day` from config and code. Also removed `allow_be_trades` and the breakeven-allowance lockout (same family of legacy counters, so that limits rely strictly on the policy locks; CONFIRMED removed by R5). Wins/losses/breakevens remain as statistics only. Trade limits are now: 6 trades/day, $2,000 daily loss, $200-$400 risk per trade (flat $300 default). |
 | R2 | Costs vs risk ceiling | Position sizing is pure `floor(risk / (SL pts x $2))`; commission ($0.74/contract) and slippage are NOT deducted. Losses above the ceiling caused only by costs are acceptable. Covered by tests. |
 | R3 | 4H alignment | 18:00 ET anchor CONFIRMED (bars at 18, 22, 02, 06, 10, 14; the 14:00 bar is cut at the 17:00 halt). Former provisional rule P1. |
 | R4 | "Toward market" rounding | CONFIRMED as the neighbouring tick on the market's side; missing `market_price` -> reject. |
 
-### Provisional rules introduced by Phase 2
+| R5 | Breakeven lockout (`allow_be_trades`) | Confirmed REMOVED. Trade limits rely strictly on L3 (6 trades/day) and L4 ($2,000 daily loss). |
+| R6 | Bracket exit mechanics | Take-profit exits are LIMIT orders that fill at exactly the target price with zero slippage; stop-loss exits are STOP-MARKET orders and include the configured slippage. Registered automatically when an intent fills; evaluated on every closed 1M candle (`PaperBroker.on_candle`). |
+| R7 | Intent settlement | The orchestrator calls `RiskEngine.settle_intent` after every fill, rejection and cancellation of an approved intent (inside a `finally`, so exceptions cannot leak the single-position slot). |
+| R8 | Git hygiene | Phases 1-3 were committed as one baseline (`feat: complete phases 1-3 baseline with 182 tests`) before any Phase 4/5 code changed. |
+
+### Provisional rules (Phases 2, 4-5)
 
 | # | Concept | Provisional rule | Config path | Status |
 |---|---|---|---|---|
 | P1 | Bar close on gaps | A higher-timeframe bar closes when its last minute arrives, or when a later bucket's candle arrives (missing minutes are never invented). | n/a | PROVISIONAL |
 | P2 | Tick-built candles | A 1M candle from ticks closes only when a tick from a later minute arrives (no clock-driven close). | n/a | PROVISIONAL |
+| P3 | Which target is bracketed | An intent with several targets brackets the FULL quantity on the highest-priority target (lowest `priority` number); with none, the bracket is stop-only. No partial exits. | n/a | PROVISIONAL (target selection is a trading rule: confirm) |
+| P4 | Stop gaps | If a bar opens beyond the stop, the stop-market fills from that open (worse than the stop) plus slippage, not at the stop price. | n/a | PROVISIONAL (conservative engineering default) |
+| P5 | Limit target realism | A target limit fills at exactly the target even if the bar gaps through it (no price improvement). Exit fills are stamped at the candle CLOSE time (intrabar time is unknown). | n/a | PROVISIONAL |
+| P6 | Stale intents | An intent approved at a bar's close fills only at the very next bar's open; if the next candle is not contiguous (missing minute, halt, weekend) the intent is cancelled, never filled at an unrelated price. | n/a | PROVISIONAL |
+| P7 | Entries vs open positions | The broker refuses an entry while any position is open in the symbol and refuses same-side adds to a managed trade (defence in depth for the 1-position cap). | n/a | PROVISIONAL |
+| P8 | TradeRecord P&L | `pnl_dollars` is NET (gross minus entry + exit commission); `r_multiple` = net P&L / approved risk. | n/a | PROVISIONAL |
 
 ## How to replace a provisional rule
 

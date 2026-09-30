@@ -50,16 +50,19 @@ class BarExitResult:
         return self.outcome in (BarExitOutcome.STOP, BarExitOutcome.AMBIGUOUS_STOP_FIRST)
 
 
-def evaluate_bar_exit(side: TradeSide, stop: float, target: float, candle: Candle) -> BarExitResult:
+def evaluate_bar_exit(side: TradeSide, stop: float, target: Optional[float], candle: Candle) -> BarExitResult:
+    """`target=None` means a stop-only bracket (the target can never be hit)."""
     if candle.timeframe != Timeframe.M1:
         raise ValueError("Same-bar policy is defined for 1-minute candles only.")
     if not candle.is_closed:
         raise ValueError("Exit evaluation requires a closed candle.")
 
     if side == TradeSide.LONG:
-        stop_hit, target_hit = candle.low <= stop, candle.high >= target
+        stop_hit = candle.low <= stop
+        target_hit = target is not None and candle.high >= target
     else:
-        stop_hit, target_hit = candle.high >= stop, candle.low <= target
+        stop_hit = candle.high >= stop
+        target_hit = target is not None and candle.low <= target
 
     if stop_hit and target_hit:
         event = SafetyEvent(

@@ -26,9 +26,15 @@ Do not remove or bypass these guards to "test something quickly."
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Optional
+from datetime import datetime
+from typing import TYPE_CHECKING, Optional
 
+from backend.core.models.candle import Candle
 from backend.core.models.order import Order, OrderResult
+
+if TYPE_CHECKING:
+    from backend.core.models.order_intent import OrderIntent
+    from backend.execution.events import ExitEvent
 
 # HARD GUARD. Do not set True. There is no live execution path in V1.
 LIVE_TRADING_ENABLED: bool = False
@@ -66,3 +72,16 @@ class ExecutionBroker(ABC):
     @abstractmethod
     def get_position(self, symbol: str) -> Optional[dict]:
         ...
+
+    # ---- gated entry + bracket handling ------------------------------------------------
+    # Non-abstract on purpose: a broker that cannot do these fails loudly / does nothing.
+
+    def submit_intent(
+        self, intent: "OrderIntent", reference_price: Optional[float] = None, at: Optional[datetime] = None
+    ) -> OrderResult:
+        """Place an entry from a RiskEngine-approved intent (and attach its stop/target bracket)."""
+        raise NotImplementedError(f"{self.__class__.__name__} does not implement submit_intent.")
+
+    def on_candle(self, candle: Candle) -> list["ExitEvent"]:
+        """Evaluate resting bracket orders against a CLOSED candle. Real brokers do this server-side (OCO)."""
+        return []
