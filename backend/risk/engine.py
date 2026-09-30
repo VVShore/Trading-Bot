@@ -28,6 +28,7 @@ independent rejection reasons found are reported together.
 
 from __future__ import annotations
 
+import dataclasses
 import math
 from dataclasses import dataclass, replace
 from typing import Callable, Optional
@@ -52,6 +53,16 @@ class RiskDecision:
     rejection_reasons: tuple[str, ...] = ()
     sizing: Optional[PositionSizeResult] = None
     adjustments: tuple[str, ...] = ()  # e.g. tick roundings or fill-time re-sizing, for the decision log
+
+    def to_dict(self) -> dict:
+        return {
+            "setup_id": self.setup_id,
+            "approved": self.approved,
+            "rejection_reasons": list(self.rejection_reasons),
+            "adjustments": list(self.adjustments),
+            "intent": self.intent.to_dict() if self.intent is not None else None,
+            "sizing": dataclasses.asdict(self.sizing) if self.sizing is not None else None,
+        }
 
 
 @dataclass(frozen=True)

@@ -142,7 +142,7 @@ def test_unsettled_intent_counts_toward_concurrency_until_settled():
 
 
 def test_daily_trade_cap_is_six_and_locks_out():
-    engine, state, config = make_engine(max_losses=99, max_wins_per_day=99, max_unprofitable_trades_per_day=99)
+    engine, state, config = make_engine()
     assert config.risk.max_trades_per_day == 6
     for _ in range(5):
         state.record_trade_result(10.0)
@@ -154,8 +154,7 @@ def test_daily_trade_cap_is_six_and_locks_out():
 
 
 def test_backtest_override_lifts_only_the_trade_cap():
-    engine, state, _ = make_engine(max_losses=99, max_wins_per_day=99, max_unprofitable_trades_per_day=99,
-                                   backtest_override_trade_frequency=True)
+    engine, state, _ = make_engine(backtest_override_trade_frequency=True)
     for _ in range(8):
         state.record_trade_result(10.0)
     assert engine.evaluate(make_setup()).approved
@@ -164,7 +163,7 @@ def test_backtest_override_lifts_only_the_trade_cap():
 # --- policy lock 4: daily loss budget ---------------------------------------------------
 
 def test_lockout_when_cumulative_loss_equals_the_limit():
-    engine, state, _ = make_engine(max_losses=99, max_unprofitable_trades_per_day=99)
+    engine, state, _ = make_engine()
     for pnl in (-700.0, -700.0, -600.0):  # exactly -2000
         state.record_trade_result(pnl)
     d = engine.evaluate(make_setup())
@@ -172,29 +171,37 @@ def test_lockout_when_cumulative_loss_equals_the_limit():
 
 
 def test_lockout_when_cumulative_loss_exceeds_the_limit():
-    engine, state, _ = make_engine(max_losses=99, max_unprofitable_trades_per_day=99)
+    engine, state, _ = make_engine()
     state.record_trade_result(-2100.0)
     assert not engine.evaluate(make_setup()).approved
 
 
 def test_lockout_when_remaining_budget_cannot_cover_a_full_trade():
-    engine, state, _ = make_engine(max_losses=99, max_unprofitable_trades_per_day=99)
+    engine, state, _ = make_engine()
     state.record_trade_result(-1750.0)  # $250 left < $300 per-trade allocation
     d = engine.evaluate(make_setup())
     assert not d.approved and any("cannot cover" in r for r in d.rejection_reasons)
 
 
 def test_budget_that_still_covers_one_trade_does_not_lock():
-    engine, state, _ = make_engine(max_losses=99, max_unprofitable_trades_per_day=99)
+    engine, state, _ = make_engine()
     state.record_trade_result(-1700.0)  # exactly $300 left
     assert engine.evaluate(make_setup()).approved
 
 
-def test_max_losses_lockout_still_applies():
+def test_consecutive_losses_do_not_lock_out_while_budget_remains():
     engine, state, _ = make_engine()
-    state.record_trade_result(-50.0)
-    state.record_trade_result(-50.0)
-    assert not engine.evaluate(make_setup()).approved
+    for _ in range(3):
+        state.record_trade_result(-300.0)  # -900: $1,100 budget left, still >= one $300 allocation
+    assert engine.evaluate(make_setup()).approved
+
+
+def test_costs_are_not_part_of_the_sizing_ceiling():
+    # Owner resolution 2: pure formula. 10 pts x $2 = $20/contract -> 15 contracts at a $300 ceiling,
+    # even though commission + slippage would make one stop-out cost a little more than $300.
+    decision = make_engine()[0].evaluate(make_setup())
+    assert decision.intent.quantity == 15
+    assert decision.intent.approved_risk_dollars == pytest.approx(300.0)
 
 
 def test_pause_trading_flag_blocks_everything():

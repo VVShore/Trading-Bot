@@ -16,7 +16,8 @@ def test_default_risk_values_match_spec_defaults():
     config = load_config()
     assert config.risk.risk_dollars == 300
     assert config.risk.max_daily_loss == 2000  # decision 4
-    assert config.risk.max_losses == 2
+    for legacy in ("max_losses", "max_wins_per_day", "max_unprofitable_trades_per_day", "allow_be_trades"):
+        assert not hasattr(config.risk, legacy)  # removed by owner resolution 1
     assert config.risk.max_trades_per_day == 6  # decision 3
 
 

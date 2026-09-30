@@ -18,7 +18,7 @@ session:
   close_before_session_close_minutes: 5
   maintenance_halt_start: "17:00"
   maintenance_halt_end: "18:00"
-  four_hour_anchor: "18:00"   # PROVISIONAL (not in SDS)
+  four_hour_anchor: "18:00"   # CONFIRMED (owner resolution 3)
 
 session_importance:
   asia: 7
@@ -96,12 +96,8 @@ risk:
   risk_percent: 0.6
   account_size: 50000
   max_daily_loss: 2000        # decision 4 (locked range 2000-2500)
-  max_losses: 2
   max_trades_per_day: 6       # decision 3 ("max_daily_trades")
   max_concurrent_positions: 1 # decision 3
-  max_wins_per_day: 3
-  max_unprofitable_trades_per_day: 3
-  allow_be_trades: 1
   daily_account_loss_threshold_percent: 20
   reduce_risk_after_losing_day: true
   increase_risk_after_win: false

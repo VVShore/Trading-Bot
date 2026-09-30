@@ -1,9 +1,9 @@
 """
 Daily risk-limit tracking.
 
-Tracks the counters described in the spec (max losses, max trades, max
-wins, max unprofitable trades, max daily loss dollars) and exposes a single
-`can_trade()` check the strategy/risk engine calls before allowing entry.
+Tracks daily results and exposes a single `can_trade()` check the risk engine
+calls before allowing entry. Lockouts derive strictly from the policy locks
+(max daily loss, remaining-budget, max trades/day); see `_evaluate_lockout`.
 
 This is intentionally a plain in-memory tracker for V1; persistence lives
 in whatever calls this (e.g. ForwardTestEngine keeps one instance per day).
@@ -51,21 +51,15 @@ class DailyRiskState:
         self._evaluate_lockout()
 
     def _evaluate_lockout(self) -> None:
+        """
+        Lockouts come ONLY from the owner's policy locks (docs/ASSUMPTIONS.md):
+          - max daily loss reached                       ($2,000)
+          - remaining loss budget < one full trade risk  (no partial sizing)
+          - max trades per day                           (6; lifted only by the backtest flag)
+        Wins/losses/breakevens are tracked as statistics but never lock trading by themselves.
+        """
         c = self.config
-        if self.losses >= c.max_losses:
-            self._lock(f"Max losses reached ({self.losses}/{c.max_losses}).")
-        elif self.trades_taken >= c.max_trades_per_day and not c.backtest_override_trade_frequency:
-            self._lock(f"Max trades/day reached ({self.trades_taken}/{c.max_trades_per_day}).")
-        elif self.wins >= c.max_wins_per_day:
-            self._lock(f"Max wins/day reached ({self.wins}/{c.max_wins_per_day}).")
-        elif self.unprofitable_trades >= c.max_unprofitable_trades_per_day:
-            self._lock(
-                f"Max unprofitable trades/day reached "
-                f"({self.unprofitable_trades}/{c.max_unprofitable_trades_per_day})."
-            )
-        elif self.breakevens > c.allow_be_trades:
-            self._lock(f"Breakeven trade allowance exceeded ({self.breakevens}/{c.allow_be_trades}).")
-        elif self.realized_pnl_dollars <= -abs(c.max_daily_loss):
+        if self.realized_pnl_dollars <= -abs(c.max_daily_loss):
             self._lock(f"Max daily loss reached (${self.realized_pnl_dollars:.2f}).")
         elif self.remaining_loss_budget() < c.resolved_risk_dollars:
             # Decision 4: if what is left of the daily loss budget cannot cover one full
@@ -74,6 +68,8 @@ class DailyRiskState:
                 f"Remaining daily loss budget (${self.remaining_loss_budget():.2f}) cannot cover a full "
                 f"trade allocation (${c.resolved_risk_dollars:.2f})."
             )
+        elif self.trades_taken >= c.max_trades_per_day and not c.backtest_override_trade_frequency:
+            self._lock(f"Max trades/day reached ({self.trades_taken}/{c.max_trades_per_day}).")
 
     def remaining_loss_budget(self) -> float:
         """Dollars that can still be lost today before max_daily_loss is reached."""

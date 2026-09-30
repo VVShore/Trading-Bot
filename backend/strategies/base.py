@@ -20,6 +20,7 @@ from typing import Any, Optional
 
 from backend.config.schema import AppConfig
 from backend.core.models.bias import HTFBiasResult
+from backend.detectors.base import DetectorResult
 from backend.core.models.market_state import MarketStateSnapshot
 from backend.core.models.setup import TradeSetup
 
@@ -43,6 +44,9 @@ class MarketContext:
     # keyed by timeframe value ("1m", "5m", "15m", "1h", "4h") -> CLOSED candles only, oldest first.
     # Developing (unclosed) bars are never placed here.
     candles: dict[str, list[Any]] = field(default_factory=dict)
+    # detector name -> result, computed from the closed candles above at `as_of`.
+    # Anything other than DETECTED means "not established": strategies must fail closed.
+    detections: dict[str, DetectorResult] = field(default_factory=dict)
 
 
 class Strategy(ABC):

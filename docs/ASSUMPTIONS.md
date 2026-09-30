@@ -39,23 +39,31 @@ code + tests exist; "Partial" says exactly what is missing.
 
 | # | Rule | Where enforced | Status |
 |---|---|---|---|
-| L1 | Base sizing on the $50,000 account with $200-$400 max risk/trade. `N = floor(dollar_risk / (SL pts x $2))` for MNQ. If the next-bar open gaps so the stop distance would break the ceiling, re-size DOWN at fill, or reject. | `RiskConfig`/`AppConfig` range check (risk must resolve to $200-$400); `RiskEngine.evaluate` (formula); `RiskEngine.reconcile_fill` (gap rule: never sizes up, rejects if no valid size or fill is through the stop) | Enforced. Sizing excludes commission and slippage (the lock is a pure points x $ formula); the paper broker still charges them on top. |
-| L2 | Off-tick prices round deterministically to the 0.25 tick: entries TOWARD market price, stops AWAY from entry, targets TOWARD entry. | `InstrumentSpec.round_entry/round_stop/round_target` (exact decimal math); applied by `RiskEngine` BEFORE sizing, so the ceiling holds on the rounded stop | Enforced. Interpretation: "toward market" = to the neighbouring tick on the market's side (not "nearest"); an off-tick entry needs `market_price` passed to `evaluate()` or it is rejected. |
-| L3 | Max 1 concurrent position; max 6 trades/day; backtests may lift the trade cap via an explicit flag. | `risk.max_concurrent_positions` (open positions + approved-but-unsettled intents); `risk.max_trades_per_day` (= "max_daily_trades") via `DailyRiskState`; `risk.backtest_override_trade_frequency` (paper environment only) | Enforced. The override lifts only the trades/day cap. |
-| L4 | Fixed daily loss limit of $2,000-$2,500. If the remaining budget cannot cover one full trade allocation, lock out for the rest of the session. No partial-size scaling. | `risk.max_daily_loss` (default $2,000, range-checked); `DailyRiskState` (limit reached, or remaining budget < resolved risk per trade) | Enforced. |
+| L1 | Base sizing on the $50,000 account with $200-$400 max risk/trade. `N = floor(dollar_risk / (SL pts x $2))` for MNQ. If the next-bar open gaps so the stop distance would break the ceiling, re-size DOWN at fill, or reject. | `RiskConfig`/`AppConfig` range check (risk must resolve to $200-$400); `RiskEngine.evaluate` (formula); `RiskEngine.reconcile_fill` (gap rule: never sizes up, rejects if no valid size or fill is through the stop) | Enforced. CONFIRMED by owner resolution R2: sizing stays pure (no commission/slippage in the formula); a stop-out that loses more than the ceiling because of costs is an accepted operating cost, not a RiskEngine violation. |
+| L2 | Off-tick prices round deterministically to the 0.25 tick: entries TOWARD market price, stops AWAY from entry, targets TOWARD entry. | `InstrumentSpec.round_entry/round_stop/round_target` (exact decimal math); applied by `RiskEngine` BEFORE sizing, so the ceiling holds on the rounded stop | Enforced. CONFIRMED by owner resolution R4: "toward market" = the neighbouring tick on the market's side; an off-tick entry with no `market_price` is rejected (fail closed). |
+| L3 | Max 1 concurrent position; max 6 trades/day; backtests may lift the trade cap via an explicit flag. | `risk.max_concurrent_positions` (open positions + approved-but-unsettled intents); `risk.max_trades_per_day` (= "max_daily_trades") via `DailyRiskState`; `risk.backtest_override_trade_frequency` (paper environment only) | Enforced. The override lifts only the trades/day cap. Per resolution R1 the legacy counters (max losses, max wins, max unprofitable trades, breakeven allowance) are REMOVED: the only lockouts are the daily loss limit, the remaining-budget rule and the 6-trade cap. |
+| L4 | Fixed daily loss limit of $2,000-$2,500 (V1 default $2,000). If the remaining budget cannot cover one full trade allocation, lock out for the rest of the session. No partial-size scaling. | `risk.max_daily_loss` (default $2,000, range-checked); `DailyRiskState` (limit reached, or remaining budget < resolved risk per trade) | Enforced. |
 | L5 | `active_symbol` is MNQ only; ignore `allow_nq_manual_override`. | `RiskEngine` (only `execution.active_symbol`; ES never) | Enforced; the override field is read by nothing. |
 | L6 | All aggregators/session logic in America/New_York; contract rollover is manual config, never automated. | `session.timezone` locked by validator; `market/sessions/clock.py`; aggregator and normalizer; `execution.active_contract` (manual field) | Enforced. `active_contract` is a plain setting, not yet consumed by any component. |
 | L7 | Session windows are strategy CONDITIONS (outside window -> NO_TRADE); no news APIs; a `pause_trading` flag for manual halts. | `NyAmHtfContinuationV1` (`within_execution_window` condition); `risk.pause_trading` enforced by `RiskEngine` | Enforced. |
 | L8 | Paper/backtest: if one 1M candle touches both SL and TP, assume stop first, log a safety event, halt the session. Live relies on OCO brackets. | `management/bar_exit.py` (`evaluate_bar_exit`, `SafetyEvent`, `enforce_safety_event` -> `DailyRiskState.halt_session`) | PARTIAL: decision logic, event and session halt are implemented and tested; they are not wired into PaperBroker bracket exits yet (Phase 5), and the event is not yet written to the decision log. |
 | L9 | RiskEngine and OrderIntent were built fresh in Phase 1; continue on this baseline. | n/a | Confirmed. |
 
-### New provisional rules introduced by Phase 2
+### Owner resolutions (2026-09-29)
+
+| # | Resolution | Effect |
+|---|---|---|
+| R1 | Daily counter cleanup | Removed `max_losses`, `max_wins_per_day`, `max_unprofitable_trades_per_day` from config and code. Also removed `allow_be_trades` and the breakeven-allowance lockout (same family of legacy counters, so that limits rely strictly on the policy locks; flagged for the owner to confirm). Wins/losses/breakevens remain as statistics only. Trade limits are now: 6 trades/day, $2,000 daily loss, $200-$400 risk per trade (flat $300 default). |
+| R2 | Costs vs risk ceiling | Position sizing is pure `floor(risk / (SL pts x $2))`; commission ($0.74/contract) and slippage are NOT deducted. Losses above the ceiling caused only by costs are acceptable. Covered by tests. |
+| R3 | 4H alignment | 18:00 ET anchor CONFIRMED (bars at 18, 22, 02, 06, 10, 14; the 14:00 bar is cut at the 17:00 halt). Former provisional rule P1. |
+| R4 | "Toward market" rounding | CONFIRMED as the neighbouring tick on the market's side; missing `market_price` -> reject. |
+
+### Provisional rules introduced by Phase 2
 
 | # | Concept | Provisional rule | Config path | Status |
 |---|---|---|---|---|
-| P1 | 4H bar alignment | The SDS lists no 4H timeframe. 4H bars are anchored at 18:00 ET (18, 22, 02, 06, 10, 14) and the 14:00 bar is cut short at the 17:00 halt. | `session.four_hour_anchor` | PROVISIONAL |
-| P2 | Bar close on gaps | A higher-timeframe bar closes when its last minute arrives, or when a later bucket's candle arrives (missing minutes are never invented). | n/a | PROVISIONAL |
-| P3 | Tick-built candles | A 1M candle from ticks closes only when a tick from a later minute arrives (no clock-driven close). | n/a | PROVISIONAL |
+| P1 | Bar close on gaps | A higher-timeframe bar closes when its last minute arrives, or when a later bucket's candle arrives (missing minutes are never invented). | n/a | PROVISIONAL |
+| P2 | Tick-built candles | A 1M candle from ticks closes only when a tick from a later minute arrives (no clock-driven close). | n/a | PROVISIONAL |
 
 ## How to replace a provisional rule
 

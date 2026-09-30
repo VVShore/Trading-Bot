@@ -3,7 +3,19 @@
 All notable changes to this project are recorded here. Provisional-rule
 replacements (see `docs/ASSUMPTIONS.md`) must always get an entry.
 
-## [Unreleased] - Phase 2: market-data foundation + policy locks
+## [Unreleased] - Phase 3: detector scaffolding + first end-to-end run
+
+### Added
+- `backend/detectors/`: abstract `Detector` (`DetectorInput` refuses unclosed/future candles; missing data or errors -> NOT_AVAILABLE), `DetectorStatus`, `DetectorResult`, `PlaceholderDetector` (UNKNOWN), `default_detectors()` (names only, no ICT logic). Wired into `MarketContextBuilder(detectors=...)` -> `MarketContext.detections`.
+- `DecisionLogger.record_event / read_trail`: full decision trail in the same NDJSON file (setup lines unchanged; `read_all` still returns only setups). `RiskDecision.to_dict()`.
+- `tests/stubs/trigger_strategy.py` (`TestTriggerStrategy`) and `tests/integration/test_e2e_pipeline.py` (data -> context -> strategy -> risk -> intent -> broker -> position -> exit -> daily state -> log).
+
+### Changed
+- Owner resolutions R1-R4 (docs/ASSUMPTIONS.md): legacy daily counters removed (`max_losses`, `max_wins_per_day`, `max_unprofitable_trades_per_day`, and `allow_be_trades`); sizing purity, 18:00 ET 4H anchor and toward-market rounding confirmed.
+- `DailyRiskState` locks only on: max daily loss, remaining budget < one trade, max trades/day.
+- Tests asserting the removed counters were rewritten to assert they no longer lock trading.
+
+## [Phase 2] - Market-data foundation + policy locks
 
 ### Added
 - Data pipeline: `MarketDataProvider` (+ `CsvBarProvider`, `InMemoryProvider`), `BarNormalizer` (timestamps -> America/New_York, explicit open/close stamping, closed flag), `TickCandleBuilder`, `MarketDataPipeline`.

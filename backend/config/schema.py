@@ -41,8 +41,8 @@ class SessionConfig(BaseModel):
     maintenance_halt_start: str = "17:00"
     maintenance_halt_end: str = "18:00"
     # 4H bars are anchored here (ET wall clock): 18:00, 22:00, 02:00, 06:00, 10:00, 14:00.
-    # NOT specified by the SDS -- provisional, see docs/ASSUMPTIONS.md.
-    four_hour_anchor: str = "18:00"
+    # Confirmed by the owner (docs/ASSUMPTIONS.md, resolution 3); the 14:00 bar is cut at the 17:00 halt.
+    four_hour_anchor: str = "18:00"  # CONFIRMED (owner resolution 3)
 
     @field_validator("timezone")
     @classmethod
@@ -157,12 +157,8 @@ class RiskConfig(BaseModel):
     account_size: float = 50000.0
 
     max_daily_loss: float = 2000.0  # decision 4: fixed, within DAILY_LOSS_LIMIT_RANGE
-    max_losses: int = 2
     max_trades_per_day: int = 6  # decision 3 ("max_daily_trades"); one setting, not two
     max_concurrent_positions: int = Field(default=1, ge=1)  # decision 3
-    max_wins_per_day: int = 3
-    max_unprofitable_trades_per_day: int = 3
-    allow_be_trades: int = 1
 
     daily_account_loss_threshold_percent: float = 20.0  # informational safety cap, not a broker rule
 
