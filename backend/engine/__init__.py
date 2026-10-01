@@ -1,8 +1,4 @@
-"""
-Compatibility shim. The backtest engine now lives in `backend/engine/backtest.py` (Phase 6); the old
-NotImplementedError skeleton that used to be here has been replaced.
-"""
-
+"""Run engines. `BacktestEngine` replays historical data through the production PipelineOrchestrator."""
 from backend.engine.backtest import ENGINE_VERSION, BacktestConfig, BacktestEngine, BacktestResult
 
 __all__ = ["ENGINE_VERSION", "BacktestConfig", "BacktestEngine", "BacktestResult"]

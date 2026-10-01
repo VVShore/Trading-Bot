@@ -62,17 +62,22 @@ code + tests exist; "Partial" says exactly what is missing.
 | R6 | Bracket exit mechanics | Take-profit exits are LIMIT orders that fill at exactly the target price with zero slippage; stop-loss exits are STOP-MARKET orders and include the configured slippage. Registered automatically when an intent fills; evaluated on every closed 1M candle (`PaperBroker.on_candle`). |
 | R7 | Intent settlement | The orchestrator calls `RiskEngine.settle_intent` after every fill, rejection and cancellation of an approved intent (inside a `finally`, so exceptions cannot leak the single-position slot). |
 | R8 | Git hygiene | Phases 1-3 were committed as one baseline (`feat: complete phases 1-3 baseline with 182 tests`) before any Phase 4/5 code changed. |
+| R9 | Target selection (was P3) | CONFIRMED: with several active targets the FULL quantity is bracketed on the target most likely to be reached; partial exits and scaling are excluded from the MVP. Implemented in `management/targets.py` using `Target.confidence` as the likelihood; ties go to the target nearest entry, then the lowest `priority` number. No active target -> stop-only bracket. *Interpretation to confirm: that `confidence` is the likelihood field.* |
+| R10 | Gap fills (was P4 + P5) | CONFIRMED: a stop gapped through fills from the bar's open plus configured slippage; a limit target fills at exactly the target even when the bar gaps through it (no price improvement). Exit fills are stamped at the candle close time. |
+| R11 | Stale intents (was P6) | CONFIRMED: if the next candle is not contiguous (missing minute, halt, weekend) the pending OrderIntent is cancelled, never filled. Tested for a 15:59 decision followed by an 18:00 candle. |
+| R12 | End-of-session flatten | ACTIVE: every open position is closed with a MARKET order at 14:57 ET (`session.flatten_time`, validated to sit after `entry_end` and before the maintenance halt). Bar-based: the exit fills at the OPEN of the first candle whose open time is >= 14:57 (the 14:57 bar when it exists), stamped at that time, with normal adverse slippage, and its bracket is cancelled. Also closes a position that survived into a new day at the first candle of that day. |
 
-### Provisional rules (Phases 2, 4-5)
+
+### Provisional rules (Phases 2, 4-6)
 
 | # | Concept | Provisional rule | Config path | Status |
 |---|---|---|---|---|
 | P1 | Bar close on gaps | A higher-timeframe bar closes when its last minute arrives, or when a later bucket's candle arrives (missing minutes are never invented). | n/a | PROVISIONAL |
 | P2 | Tick-built candles | A 1M candle from ticks closes only when a tick from a later minute arrives (no clock-driven close). | n/a | PROVISIONAL |
-| P3 | Which target is bracketed | An intent with several targets brackets the FULL quantity on the highest-priority target (lowest `priority` number); with none, the bracket is stop-only. No partial exits. | n/a | PROVISIONAL (target selection is a trading rule: confirm) |
-| P4 | Stop gaps | If a bar opens beyond the stop, the stop-market fills from that open (worse than the stop) plus slippage, not at the stop price. | n/a | PROVISIONAL (conservative engineering default) |
-| P5 | Limit target realism | A target limit fills at exactly the target even if the bar gaps through it (no price improvement). Exit fills are stamped at the candle CLOSE time (intrabar time is unknown). | n/a | PROVISIONAL |
-| P6 | Stale intents | An intent approved at a bar's close fills only at the very next bar's open; if the next candle is not contiguous (missing minute, halt, weekend) the intent is cancelled, never filled at an unrelated price. | n/a | PROVISIONAL |
+| P3 | Flatten details | (a) An intent may not fill at or after the flatten time (it would be closed at once): it is cancelled. (b) A position carried into a new day is flattened at that day's first candle. (c) The flatten exit uses the bar's open as its reference price. | `session.flatten_time` | PROVISIONAL (engineering defaults around R12) |
+| P4 | Trading-day boundary | A "trading day" is the New York CALENDAR date of a candle's open time (not the 18:00 ET CME session roll). The first candle of a new date resets `DailyRiskState` (counters, lockout, safety halt) in place; a trade's P&L belongs to the day it closes. | n/a | PROVISIONAL |
+| P5 | End of data | Positions still open when the data ends are not force-closed (there is no candle to fill against); they are listed in the manifest as `open_positions_at_end`. | n/a | PROVISIONAL |
+| P6 | Manifest determinism | `manifest.json` has no wall-clock time or absolute paths; git SHA is null when git is unavailable; `git_dirty` only counts modified tracked files. | n/a | PROVISIONAL |
 | P7 | Entries vs open positions | The broker refuses an entry while any position is open in the symbol and refuses same-side adds to a managed trade (defence in depth for the 1-position cap). | n/a | PROVISIONAL |
 | P8 | TradeRecord P&L | `pnl_dollars` is NET (gross minus entry + exit commission); `r_multiple` = net P&L / approved risk. | n/a | PROVISIONAL |
 

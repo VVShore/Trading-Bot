@@ -26,8 +26,9 @@ Brackets (owner resolution R6)
   If one candle reaches both, the stop is assumed hit first (owner decision 8) and a SafetyEvent
   is returned for the caller to act on. Exit fills are stamped with the candle's close time
   (intrabar time is unknowable at bar resolution).
-  Target choice (provisional, docs/ASSUMPTIONS.md P3): an intent with several targets brackets
-  the FULL quantity on the highest-priority target (lowest `priority` number); none -> stop only.
+  Target choice (R9, management/targets.py): an intent with several targets brackets the FULL
+  quantity on the most likely one (highest `confidence`, then nearest entry, then lowest priority);
+  none -> stop only. No partial exits.
 
 Trade lifecycle
 ---------------
@@ -52,8 +53,11 @@ from backend.core.models.order_intent import OrderIntent
 from backend.core.models.trade import ExitFill, TradeRecord
 from backend.decision_log.trades import TradeStore
 from backend.execution.base import ExecutionBroker
-from backend.execution.events import EXIT_MANUAL, EXIT_STOP, EXIT_STOP_SAME_BAR, EXIT_TARGET, ExitEvent
-from backend.management.bar_exit import BarExitOutcome, evaluate_bar_exit
+from backend.execution.events import (
+    EXIT_MANUAL, EXIT_SESSION_FLATTEN, EXIT_STOP, EXIT_STOP_SAME_BAR, EXIT_TARGET, ExitEvent,
+)
+from backend.management.bar_exit import BarExitOutcome, BarExitResult, evaluate_bar_exit
+from backend.management.targets import select_bracket_target
 
 
 @dataclass
@@ -183,10 +187,13 @@ class PaperBroker(ExecutionBroker):
             self._open_trade(intent, order, result)
         return result
 
-    def submit_order(self, order: Order, reference_price: Optional[float] = None) -> OrderResult:
+    def submit_order(
+        self, order: Order, reference_price: Optional[float] = None, *, exit_reason: str = EXIT_MANUAL
+    ) -> OrderResult:
         """
         reference_price is the current market price the order fills against. In replay it
         is supplied by the engine (e.g. next bar open); the broker never invents one.
+        `exit_reason` labels the TradeRecord exit when this order closes a managed trade.
         """
         if order.order_id in self._orders:
             return OrderResult(
@@ -241,7 +248,7 @@ class PaperBroker(ExecutionBroker):
         if managed is not None and before_side is not None and before_side != order.side:
             closed_qty = min(before_qty, order.quantity)
             closed = self._register_exit(
-                managed.record.trade_id, order.created_at, fill_price, closed_qty, EXIT_MANUAL,
+                managed.record.trade_id, order.created_at, fill_price, closed_qty, exit_reason,
                 realized, commission_per_contract * closed_qty,
             )
             if closed is not None:
@@ -315,7 +322,7 @@ class PaperBroker(ExecutionBroker):
         )
         self._trades[intent.intent_id] = _TradeState(record, result.fill_quantity, result.commission)
 
-        target = min(intent.targets, key=lambda t: t.priority) if intent.targets else None
+        target = select_bracket_target(intent.targets, intent.entry_price)  # R9
         exit_side = _opposite(intent.side)
         stop_id = f"{intent.intent_id}:stop"
         stop_order = Order(order_id=stop_id, symbol=intent.symbol, side=exit_side, order_type=OrderType.STOP,
@@ -428,6 +435,33 @@ class PaperBroker(ExecutionBroker):
         closed = self._register_exit(bracket.trade_id, candle.close_time, fill_price, qty, reason, realized, commission)
         assert closed is not None, "a bracket exit always flattens the managed position"
         return ExitEvent(trade=closed, result=result, reason=reason, net_pnl=closed.pnl_dollars or 0.0, bar_result=res)
+
+    def flatten_position(
+        self, symbol: str, reference_price: float, at: datetime, reason: str = EXIT_SESSION_FLATTEN
+    ) -> Optional[ExitEvent]:
+        """
+        Close the whole position in `symbol` with a MARKET order (standard adverse slippage) and cancel its
+        bracket. Used for the R12 session flatten. Raises if the exit cannot fill: a position that was
+        ordered closed must never stay open silently.
+        """
+        pos = self._positions.get(symbol)
+        if pos is None:
+            return None
+        managed = self._managed_trade_for(symbol)
+        trade_id = managed.record.trade_id if managed is not None else None
+        order = Order(
+            order_id=f"{trade_id}:flatten" if trade_id else f"flatten-{symbol}-{at.isoformat()}",
+            symbol=symbol, side=_opposite(pos.side), order_type=OrderType.MARKET,
+            quantity=pos.quantity, created_at=at, trade_id=trade_id,
+        )
+        result = self.submit_order(order, reference_price=reference_price, exit_reason=reason)
+        if not result.filled:
+            raise RuntimeError(f"Flatten of {symbol} failed: {result.rejection_reason}")
+        if managed is None:
+            return None
+        closed = next(t for t in reversed(self._closed_trades) if t.trade_id == trade_id)
+        return ExitEvent(trade=closed, result=result, reason=reason, net_pnl=closed.pnl_dollars or 0.0,
+                         bar_result=BarExitResult(BarExitOutcome.NONE))
 
     def cancel_order(self, order_id: str) -> bool:
         """Only a still-working, non-bracket order can be cancelled. Bracket legs belong to the broker

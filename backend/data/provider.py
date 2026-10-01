@@ -14,7 +14,7 @@ from __future__ import annotations
 import csv
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Iterable, Iterator, Mapping
+from typing import Any, Iterable, Iterator, Mapping, Sequence
 
 
 class MarketDataProvider(ABC):
@@ -48,3 +48,16 @@ class CsvBarProvider(MarketDataProvider):
     def stream(self) -> Iterator[Mapping[str, Any]]:
         with open(self._path, newline="") as f:
             yield from csv.DictReader(f, delimiter=self._delimiter)
+
+
+class ChainedProvider(MarketDataProvider):
+    """Replay several providers back to back (e.g. one CSV per month), in the order given."""
+
+    name = "chained"
+
+    def __init__(self, providers: Sequence[MarketDataProvider]) -> None:
+        self._providers = list(providers)
+
+    def stream(self) -> Iterator[Mapping[str, Any]]:
+        for provider in self._providers:
+            yield from provider.stream()

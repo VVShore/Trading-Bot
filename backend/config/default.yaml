@@ -15,7 +15,8 @@ session:
   entry_start: "09:02"
   entry_end: "11:00"
   session_close: "16:00"
-  close_before_session_close_minutes: 5
+  close_before_session_close_minutes: 5   # legacy/unused
+  flatten_time: "14:57"                   # R12: hard-close every open position
   maintenance_halt_start: "17:00"
   maintenance_halt_end: "18:00"
   four_hour_anchor: "18:00"   # CONFIRMED (owner resolution 3)

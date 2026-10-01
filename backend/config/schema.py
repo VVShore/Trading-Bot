@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from typing import Optional
 
+from datetime import time as _time
+
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
@@ -35,7 +37,10 @@ class SessionConfig(BaseModel):
     entry_start: str = "09:02"
     entry_end: str = "11:00"  # configurable; may later extend to 11:30
     session_close: str = "16:00"
-    close_before_session_close_minutes: int = 5
+    close_before_session_close_minutes: int = 5  # legacy/unused: the enforced rule is `flatten_time`
+    # R12: every open position is closed with a market order at this ET time (3 minutes before the
+    # 15:00 end of the NY PM session). Also the cut-off after which no new entry may fill.
+    flatten_time: str = "14:57"
     # CME equity-futures daily maintenance halt (ET). No candles exist inside it and no
     # aggregated bar may span it.
     maintenance_halt_start: str = "17:00"
@@ -43,6 +48,18 @@ class SessionConfig(BaseModel):
     # 4H bars are anchored here (ET wall clock): 18:00, 22:00, 02:00, 06:00, 10:00, 14:00.
     # Confirmed by the owner (docs/ASSUMPTIONS.md, resolution 3); the 14:00 bar is cut at the 17:00 halt.
     four_hour_anchor: str = "18:00"  # CONFIRMED (owner resolution 3)
+
+    @model_validator(mode="after")
+    def _flatten_time_is_sane(self) -> "SessionConfig":
+        def hm(v: str) -> tuple[int, int]:
+            h, m = v.split(":")
+            return int(h), int(m)
+        if not hm(self.entry_end) < hm(self.flatten_time) < hm(self.maintenance_halt_start):
+            raise ValueError(
+                f"session.flatten_time ({self.flatten_time}) must fall after entry_end ({self.entry_end}) "
+                f"and before the maintenance halt ({self.maintenance_halt_start})."
+            )
+        return self
 
     @field_validator("timezone")
     @classmethod

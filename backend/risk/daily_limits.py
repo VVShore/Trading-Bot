@@ -5,15 +5,15 @@ Tracks daily results and exposes a single `can_trade()` check the risk engine
 calls before allowing entry. Lockouts derive strictly from the policy locks
 (max daily loss, remaining-budget, max trades/day); see `_evaluate_lockout`.
 
-This is intentionally a plain in-memory tracker for V1; persistence lives
-in whatever calls this (e.g. ForwardTestEngine keeps one instance per day).
+This is intentionally a plain in-memory tracker for V1. Trading days roll over via
+`start_new_day()` (the orchestrator calls it on the first candle of a new New York date).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Optional
+from typing import Any, Optional
 
 from backend.config.schema import RiskConfig
 
@@ -70,6 +70,34 @@ class DailyRiskState:
             )
         elif self.trades_taken >= c.max_trades_per_day and not c.backtest_override_trade_frequency:
             self._lock(f"Max trades/day reached ({self.trades_taken}/{c.max_trades_per_day}).")
+
+    def snapshot(self) -> dict[str, Any]:
+        """Plain-dict summary of the day so far (for logs / run manifests)."""
+        return {
+            "trading_day": self.trading_day.isoformat(),
+            "trades_taken": self.trades_taken,
+            "wins": self.wins,
+            "losses": self.losses,
+            "breakevens": self.breakevens,
+            "realized_pnl_dollars": round(self.realized_pnl_dollars, 6),
+            "locked_out": self.locked_out,
+            "lockout_reason": self.lockout_reason,
+        }
+
+    def start_new_day(self, day: date) -> None:
+        """
+        Multi-day rollover: reset every counter and lockout IN PLACE (so the RiskEngine and the
+        orchestrator, which hold this object, see the new day). Days only move forward.
+        A halted or loss-locked session ends with its day; it never carries over.
+        """
+        if day <= self.trading_day:
+            raise ValueError(f"start_new_day({day}) must be after the current trading day {self.trading_day}.")
+        self.trading_day = day
+        self.trades_taken = self.wins = self.losses = self.breakevens = 0
+        self.consecutive_losses = self.unprofitable_trades = 0
+        self.realized_pnl_dollars = 0.0
+        self.locked_out = False
+        self.lockout_reason = None
 
     def remaining_loss_budget(self) -> float:
         """Dollars that can still be lost today before max_daily_loss is reached."""

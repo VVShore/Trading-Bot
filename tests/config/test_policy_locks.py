@@ -61,3 +61,11 @@ def test_building_blocks_stay_constructible_for_unit_tests():
     assert RiskConfig(max_daily_loss=500).max_daily_loss == 500  # policy is enforced on AppConfig
     assert SessionConfig().timezone == "America/New_York"
     assert ExecutionConfig().active_symbol == "MNQ"
+
+
+def test_flatten_time_is_1457_and_validated():
+    assert load_config().session.flatten_time == "14:57"
+    with pytest.raises(ValidationError):
+        _cfg(session={"flatten_time": "10:30"})   # before entry_end (11:00)
+    with pytest.raises(ValidationError):
+        _cfg(session={"flatten_time": "17:30"})   # inside/after the maintenance halt

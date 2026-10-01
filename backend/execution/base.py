@@ -85,3 +85,13 @@ class ExecutionBroker(ABC):
     def on_candle(self, candle: Candle) -> list["ExitEvent"]:
         """Evaluate resting bracket orders against a CLOSED candle. Real brokers do this server-side (OCO)."""
         return []
+
+    def flatten_position(
+        self, symbol: str, reference_price: float, at: datetime, reason: str = "session_flatten"
+    ) -> Optional["ExitEvent"]:
+        """Close any open position in `symbol` with a MARKET order. Returns the closed-trade event, if managed."""
+        raise NotImplementedError(f"{self.__class__.__name__} does not implement flatten_position.")
+
+    def open_trades(self) -> list:
+        """Currently open TradeRecords (empty for brokers that do not keep them)."""
+        return []

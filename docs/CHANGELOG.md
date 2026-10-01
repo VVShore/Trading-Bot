@@ -3,7 +3,21 @@
 All notable changes to this project are recorded here. Provisional-rule
 replacements (see `docs/ASSUMPTIONS.md`) must always get an entry.
 
-## [Unreleased] - Phases 4-5: production orchestrator + bracket exits
+## [Unreleased] - Phase 6: backtest engine, flatten, multi-day rollover, run manifests
+
+### Added
+- `backend/engine/backtest.py`: `BacktestEngine.run()` (replaces the old `NotImplementedError`), `BacktestConfig`, `BacktestResult`; wraps the production `PipelineOrchestrator`. Writes `decision_log.ndjson`, `trades.ndjson` and `manifest.json` (git SHA, config hash, data file hashes, data date ranges, engine version, artifact hashes, result summary); refuses to overwrite a previous run. `backend/backtest/engine.py` now re-exports it.
+- R12 session flatten: `session.flatten_time` (14:57 ET); `PaperBroker.flatten_position`, `ExecutionBroker.flatten_position/open_trades` hooks, `EXIT_SESSION_FLATTEN`; orchestrator closes positions at the first bar at/after 14:57 (and any position that survived into a new day); intents cannot fill at/after the flatten time.
+- Multi-day rollover: `DailyRiskState.start_new_day()` / `snapshot()`; the orchestrator rolls on the first candle of a new New York date, logs `day_rollover`, and keeps `day_summaries()`. `build_paper_orchestrator(trading_day=None)` starts from a placeholder day.
+- `management/targets.py` `select_bracket_target` (R9); `ChainedProvider`; `MarketDataPipeline` stats exposed on the orchestrator.
+- 29 new tests (flatten, rollover, stale intent, target selection, engine/manifest), mutation-checked.
+
+### Changed
+- Bracket target choice: highest `Target.confidence`, then nearest entry, then lowest priority (was: lowest priority number).
+- `PipelineOrchestrator` requires `session=` (flatten time); exits from brackets and flattens share one handler.
+- Owner resolutions R9-R12 in docs/ASSUMPTIONS.md; provisional P3-P6 (old numbering) retired as confirmed, new P3-P6 added.
+
+## [Phases 4-5] - production orchestrator + bracket exits
 
 ### Added
 - `backend/pipeline/orchestrator.py`: `PipelineOrchestrator` (`step()`, `run()`, `on_tick()`, `finish()`) and `build_paper_orchestrator()`. Per candle: fill last bar's intent at this bar's open (`reconcile_fill` -> `submit_intent`, `settle_intent` in a `finally`), evaluate brackets, then strategy -> risk. Stale (non-contiguous) intents are cancelled. Every step is written to the DecisionLogger.

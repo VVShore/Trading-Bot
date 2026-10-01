@@ -12,6 +12,7 @@ EXIT_TARGET = "target"
 EXIT_STOP = "stop"
 EXIT_STOP_SAME_BAR = "stop_same_bar_ambiguity"
 EXIT_MANUAL = "manual"
+EXIT_SESSION_FLATTEN = "session_flatten"
 
 
 @dataclass(frozen=True)

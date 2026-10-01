@@ -161,11 +161,14 @@ def test_intent_without_a_target_gets_a_stop_only_bracket():
     assert ev.reason == EXIT_STOP
 
 
-def test_with_several_targets_the_highest_priority_one_is_bracketed():
-    targets = [Target(type="tp2", price=20050.0, source="t", priority=2), Target(type="tp1", price=20030.0, source="t", priority=1)]
+def test_with_several_targets_the_most_likely_one_takes_the_full_quantity():
+    targets = [Target(type="near", price=20030.0, source="t", priority=1, confidence=0.4),
+               Target(type="far", price=20050.0, source="t", priority=2, confidence=0.8)]
     broker = _broker()
     intent, _ = _open(broker, _intent(targets=targets))
-    assert broker.get_order_record(f"{intent.intent_id}:target").order.limit_price == 20030.0
+    leg = broker.get_order_record(f"{intent.intent_id}:target").order
+    assert leg.limit_price == 20050.0 and leg.quantity == 15          # highest confidence, FULL quantity, one leg
+    assert broker.get_order_record(f"{intent.intent_id}:target2") is None
 
 
 def test_entry_is_refused_while_a_position_is_open():
